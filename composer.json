@@ -1,0 +1,22 @@
+{
+    "name": "michaelyang/cpc",
+    "type": "library",
+    "require": {
+        "fabpot/goutte": "^3.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^5.0"
+    },
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "flachesis",
+            "email": "flachesis@flachesis.org"
+        }
+    ],
+    "autoload": {
+        "psr-4": {"Flachesis\\Cpc\\": "src/"}
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
