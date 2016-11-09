@@ -1,0 +1,13 @@
+#! /usr/bin/env php
+<?php
+
+require_once __DIR__ . '/../vendor/autoload.php';
+
+use Flachesis\Cpc\CpcLocation;
+$gapiKey = 'AIzaSyDzBFuTKmhZsd28ygZjMtIHqc1v_2jWQlw';
+
+$cpc = new CpcLocation($gapiKey);
+
+$info = $cpc->getCpcInfo();
+
+echo json_encode($info);
