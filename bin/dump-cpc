@@ -1,0 +1,120 @@
+#! /usr/bin/env php
+
+<?php
+
+require __DIR__ . '/../vendor/autoload.php';
+
+use GuzzleHttp\Client as GuzzleClient;
+use Symfony\Component\DomCrawler\Crawler;
+
+$client = new GuzzleClient();
+$jar = new \GuzzleHttp\Cookie\CookieJar();
+
+$resp = $client->get('https://vipmember.tmtd.cpc.com.tw/mbwebs/service_search.aspx', [
+    'headers' => [
+        'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.98 Safari/537.36',
+    ],
+    'cookies' => $jar,
+]);
+
+$indexHtml = (string) $resp->getBody();
+$crawler = new Crawler($indexHtml);
+
+$data = [];
+foreach ($crawler->filter('input[type="hidden"]') as $node) {
+    $data[$node->getAttribute('name')] = $node->getAttribute('value');
+}
+
+$data['TypeGroup'] = 'rbGroup2';
+$data['ddlCity'] = '全部縣市';
+$data['ddlSubCity'] = '全部鄉鎮區';
+$data['tbKWQuery'] = '';
+$data['TimeGroup'] = 'rbGroup4';
+$data['CheckBox2'] = 'on';
+$data['CheckBox3'] = 'on';
+$data['CheckBox4'] = 'on';
+$data['btnQuery'] = '查   詢';
+
+$resp = $client->post('https://vipmember.tmtd.cpc.com.tw/mbwebs/service_search.aspx', [
+    'headers' => [
+        'Origin' => 'https://vipmember.tmtd.cpc.com.tw',
+        'Referer' => 'https://vipmember.tmtd.cpc.com.tw/mbwebs/service_search.aspx',
+        'User-Agent' => 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_1) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/54.0.2840.98 Safari/537.36',
+    ],
+    'cookies' => $jar,
+    'form_params' => $data,
+]);
+
+
+$html = (string) $resp->getBody();
+$crawler = new Crawler();
+$crawler->addHtmlContent($html);
+$data = $crawler->filter('tr[align="center"]')->each(function (Crawler $crawler, $i) {
+    $children = $crawler->children();
+
+    return array(
+        'city' => trim($children->eq(0)->text()),
+        'district' => trim($children->eq(1)->text()),
+        'name' => trim($children->eq(3)->filter('a')->first()->text()),
+        'addr' => trim($children->eq(4)->text()),
+        'phone' => trim($children->eq(5)->text()),
+        'time' => trim($children->eq(6)->text()),
+        'open' => empty(trim($children->eq(3)->filter('span')->last()->text())),
+    );
+});
+
+foreach ($data as $key => $station) {
+    $resp = $client->get('https://maps.googleapis.com/maps/api/geocode/json', [
+        'query' => array (
+            'address' => $station['city'] . $station['district'] . $station['addr'],
+            'key' => '',  //google api key
+            'region' => 'tw',
+        ),
+    ]);
+
+    $result = json_decode((string) $resp->getBody(), true);
+    $station['location'] = $result['results'][0]['geometry']['location'];
+    $data[$key] = $station;
+}
+file_put_contents('tmp.txt', json_encode($data));
+$data = file_get_contents('tmp.txt');
+$data = json_decode($data, true);
+$dom = new DOMDocument('1.0', 'UTF-8');
+$node = $dom->createElementNS('http://earth.google.com/kml/2.1', 'kml');
+$parNode = $dom->appendChild($node);
+$dnode = $dom->createElement('Document');
+$docNode = $parNode->appendChild($dnode);
+$restStyleNode = $dom->createElement('Style');
+$restStyleNode->setAttribute('id', 'gasStyle');
+$restIconstyleNode = $dom->createElement('IconStyle');
+$restIconstyleNode->setAttribute('id', 'gasIcon');
+$restIconNode = $dom->createElement('Icon');
+$restHref = $dom->createElement('href', 'http://maps.google.com/mapfiles/ms/micons/gas.png');
+$restIconNode->appendChild($restHref);
+$restIconstyleNode->appendChild($restIconNode);
+$restStyleNode->appendChild($restIconstyleNode);
+$docNode->appendChild($restStyleNode);
+
+foreach ($data as $key => $station) {
+    $node = $dom->createElement('Placemark');
+    $placeNode = $docNode->appendChild($node);
+    $placeNode->setAttribute('id', 'placemark' . $key);
+    $nameNode = $dom->createElement('name', htmlentities($station['name']));
+    $placeNode->appendChild($nameNode);
+    if ($station['open']) {
+        $descNode = $dom->createElement('description',  htmlentities("營業時間: ". $station['time'] . "\n地址: " . $station['city'] . $station['district'] . $station['addr']));
+    } else {
+        $descNode = $dom->createElement('description',  htmlentities("維修中.\n地址: " . $station['city'] . $station['district'] . $station['addr']));
+    }
+    $placeNode->appendChild($descNode);
+    $styleUrl = $dom->createElement('styleUrl', '#' . 'gasStyle');
+    $placeNode->appendChild($styleUrl);
+    $pointNode = $dom->createElement('Point');
+    $placeNode->appendChild($pointNode);
+    $coorStr = $station['location']['lng'] . ','  . $station['location']['lat'];
+    $coorNode = $dom->createElement('coordinates', $coorStr);
+    $pointNode->appendChild($coorNode);
+}
+
+$kmlOutput = $dom->saveXML();
+echo $kmlOutput;
